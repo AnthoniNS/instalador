@@ -8,16 +8,25 @@
 #######################################
 backend_redis_create() {
   print_banner
-  printf "${WHITE} 💻 Criando banco e phpmyadmin via Docker...${GRAY_LIGHT}"
+  printf "${WHITE} 💻 Criando Redis & Banco Postgres...${GRAY_LIGHT}"
   printf "\n\n"
 
   sleep 2
 
   sudo su - root <<EOF
   usermod -aG docker deploy
-  docker run --name mysql-${instancia_add} -e MYSQL_ROOT_PASSWORD=${mysql_root_password} -e MYSQL_DATABASE=${instancia_add} -e MYSQL_USER=${instancia_add} -e MYSQL_PASSWORD=${mysql_root_password} --restart always -p ${mysql_port}:3306 -d mariadb:latest --character-set-server=utf8mb4 --collation-server=utf8mb4_bin
-  docker run --name phpmyadmin-${instancia_add} -d --link mysql-${instancia_add}:db -p ${phpmyadmin_port}:80 phpmyadmin/phpmyadmin
+  docker run --name redis-${instancia_add} -p ${redis_port}:6379 --restart always --detach redis redis-server --requirepass ${mysql_root_password}
+
+  sleep 2
+  sudo su - postgres <<EOF
+    createdb ${instancia_add};
+    psql
+    CREATE USER ${instancia_add} SUPERUSER INHERIT CREATEDB CREATEROLE;
+    ALTER USER ${instancia_add} PASSWORD '${mysql_root_password}';
+    \q
+    exit
 EOF
+
 sleep 2
 
 }
@@ -50,12 +59,11 @@ NODE_ENV=
 BACKEND_URL=${backend_url}
 FRONTEND_URL=${frontend_url}
 PROXY_PORT=443
-CHROME_BIN=/usr/bin/google-chrome-stable
 PORT=${backend_port}
 
 DB_HOST=localhost
-DB_PORT=${mysql_port}
-DB_DIALECT=mysql
+DB_DIALECT=postgres
+DB_PORT=5432
 DB_USER=${instancia_add}
 DB_PASS=${mysql_root_password}
 DB_NAME=${instancia_add}
@@ -63,39 +71,18 @@ DB_NAME=${instancia_add}
 JWT_SECRET=${jwt_secret}
 JWT_REFRESH_SECRET=${jwt_refresh_secret}
 
-PMA_PORT=${phpmyadmin_port}
-REDE=${instancia_add}
+REDIS_URI=redis://:${mysql_root_password}@127.0.0.1:${redis_port}
+REDIS_OPT_LIMITER_MAX=1
+REGIS_OPT_LIMITER_DURATION=3000
 
 USER_LIMIT=${max_user}
 CONNECTIONS_LIMIT=${max_whats}
+CLOSED_SEND_BY_ME=true
+
 [-]EOF
 EOF
 
   sleep 2
-
-sudo su - deploy << EOF
-  cat <<[-]EOF > /home/deploy/${instancia_add}/backend/src/config/database.ts
-require("../bootstrap");
-
-module.exports = {
-  define: {
-    charset: "utf8mb4",
-    collate: "utf8mb4_bin"
-  },
-  dialect: process.env.DB_DIALECT || "mysql",
-  timezone: "-03:00",
-  host: process.env.DB_HOST,
-  port: process.env.DB_PORT,
-  database: process.env.DB_NAME,
-  username: process.env.DB_USER,
-  password: process.env.DB_PASS,
-  logging: false
-};
-[-]EOF
-EOF
-
-  sleep 2
-
 }
 
 #######################################
@@ -132,7 +119,6 @@ backend_node_build() {
 
   sudo su - deploy <<EOF
   cd /home/deploy/${instancia_add}/backend
-  npm install
   npm run build
 EOF
 
@@ -152,18 +138,18 @@ backend_update() {
   sleep 2
 
   sudo su - deploy <<EOF
-  cd /home/deploy/${instancia_add}
-  pm2 stop ${instancia_add}-backend
+  cd /home/deploy/${empresa_atualizar}
+  pm2 stop ${empresa_atualizar}-backend
   git pull
-  cd /home/deploy/${instancia_add}/backend
-  npm install
+  cd /home/deploy/${empresa_atualizar}/backend
+  npm install --force
   npm update -f
   npm install @types/fs-extra
   rm -rf dist 
   npm run build
   npx sequelize db:migrate
   npx sequelize db:seed
-  pm2 start ${instancia_add}-backend
+  pm2 start ${empresa_atualizar}-backend
   pm2 save 
 EOF
 
@@ -225,8 +211,8 @@ backend_start_pm2() {
 
   sudo su - deploy <<EOF
   cd /home/deploy/${instancia_add}/backend
-  pm2 start dist/server.js --name ${instancia_add}-backend
-
+  sudo pm2 start dist/server.js --name ${instancia_add}-backend
+  sudo pm2 save --force
 EOF
 
   sleep 2

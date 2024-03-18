@@ -16,7 +16,7 @@ frontend_node_dependencies() {
 
   sudo su - deploy <<EOF
   cd /home/deploy/${instancia_add}/frontend
-  npm install
+  npm install --force
 EOF
 
   sleep 2
@@ -36,8 +36,6 @@ frontend_node_build() {
 
   sudo su - deploy <<EOF
   cd /home/deploy/${instancia_add}/frontend
-  cp src/config.json.example src/config.json
-  npm install
   npm run build
 EOF
 
@@ -57,14 +55,14 @@ frontend_update() {
   sleep 2
 
   sudo su - deploy <<EOF
-  cd /home/deploy/${instancia_add}
-  pm2 stop ${instancia_add}-frontend
+  cd /home/deploy/${empresa_atualizar}
+  pm2 stop ${empresa_atualizar}-frontend
   git pull
-  cd /home/deploy/${instancia_add}/frontend
+  cd /home/deploy/${empresa_atualizar}/frontend
   npm install
   rm -rf build
   npm run build
-  pm2 start ${instancia_add}-frontend
+  pm2 start ${empresa_atualizar}-frontend
   pm2 save
 EOF
 
@@ -93,7 +91,6 @@ sudo su - deploy << EOF
   cat <<[-]EOF > /home/deploy/${instancia_add}/frontend/.env
 REACT_APP_BACKEND_URL=${backend_url}
 REACT_APP_HOURS_CLOSE_TICKETS_AUTO = 24
-SERVER_PORT = ${frontend_port}
 [-]EOF
 EOF
 
@@ -105,12 +102,11 @@ sudo su - deploy << EOF
 const express = require("express");
 const path = require("path");
 const app = express();
-require('dotenv').config();
 app.use(express.static(path.join(__dirname, "build")));
 app.get("/*", function (req, res) {
 	res.sendFile(path.join(__dirname, "build", "index.html"));
 });
-app.listen(process.env.SERVER_PORT || 3333);
+app.listen(${frontend_port});
 
 [-]EOF
 EOF
@@ -132,10 +128,16 @@ frontend_start_pm2() {
 
   sudo su - deploy <<EOF
   cd /home/deploy/${instancia_add}/frontend
-  pm2 start server.js --name ${instancia_add}-frontend
-  pm2 save
+  sudo pm2 start server.js --name ${instancia_add}-frontend
+  sudo pm2 save --force
 EOF
 
+ sleep 2
+  
+  sudo su - root <<EOF
+   pm2 startup
+  sudo env PATH=$PATH:/usr/bin /usr/lib/node_modules/pm2/bin/pm2 startup systemd -u deploy --hp /home/deploy
+EOF
   sleep 2
 }
 
